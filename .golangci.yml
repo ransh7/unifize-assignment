@@ -1,0 +1,48 @@
+version: "2"
+
+linters:
+  # standard: errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - errorlint    # errors.Is/As instead of == and type assertions
+    - exhaustive   # switches over enums must handle every value
+    - gocritic
+    - godot        # doc comments are full sentences
+    - gosec
+    - misspell
+    - nolintlint
+    - perfsprint   # cheaper alternatives to fmt.Sprintf
+    - prealloc
+    - revive
+    - thelper      # test helpers call t.Helper()
+    - unconvert
+    - unparam
+  settings:
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: error-strings
+        - name: error-naming
+        - name: receiver-naming
+        - name: indent-error-flow
+        - name: unused-parameter
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      disabled-checks:
+        # Domain types are small immutable values; value semantics are
+        # clearer than pointers and the copies are not on a hot path.
+        - hugeParam
+        - rangeValCopy
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/ransh7/unifize-assignment
