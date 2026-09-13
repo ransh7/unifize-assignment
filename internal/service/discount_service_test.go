@@ -14,8 +14,12 @@ import (
 	"github.com/ransh7/unifize-assignment/testdata"
 )
 
-func newService() service.DiscountService {
-	repo := repository.NewInMemoryRepository(testdata.Rules())
+func newService(t *testing.T) service.DiscountService {
+	t.Helper()
+	repo, err := repository.NewInMemoryRepository(testdata.Rules())
+	if err != nil {
+		t.Fatalf("loading fake rules: %v", err)
+	}
 	return service.NewDiscountService(repo, service.WithClock(func() time.Time { return testdata.Now }))
 }
 
@@ -150,7 +154,7 @@ func TestCalculateCartDiscounts(t *testing.T) {
 		},
 	}
 
-	svc := newService()
+	svc := newService(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -219,7 +223,7 @@ func TestCalculateCartDiscountsErrors(t *testing.T) {
 		},
 	}
 
-	svc := newService()
+	svc := newService(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := svc.CalculateCartDiscounts(tt.ctx, tt.items, testdata.RegularCustomer, nil)
@@ -321,7 +325,7 @@ func TestValidateDiscountCode(t *testing.T) {
 		},
 	}
 
-	svc := newService()
+	svc := newService(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ok, err := svc.ValidateDiscountCode(context.Background(), tt.code, tt.items, tt.customer)
@@ -344,7 +348,7 @@ func TestValidateDiscountCode(t *testing.T) {
 }
 
 func TestValidationErrorDetail(t *testing.T) {
-	svc := newService()
+	svc := newService(t)
 	_, err := svc.ValidateDiscountCode(context.Background(), "GOLD20",
 		[]models.CartItem{item(testdata.PumaTShirt, 1)}, testdata.RegularCustomer)
 

@@ -20,7 +20,10 @@ func main() {
 	voucher := flag.String("voucher", "", "optional voucher code to apply, e.g. SUPER69")
 	flag.Parse()
 
-	repo := repository.NewInMemoryRepository(testdata.Rules())
+	repo, err := repository.NewInMemoryRepository(testdata.Rules())
+	if err != nil {
+		log.Fatalf("loading discount rules: %v", err)
+	}
 	svc := service.NewDiscountService(repo)
 
 	ctx := context.Background()

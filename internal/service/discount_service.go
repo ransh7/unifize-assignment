@@ -25,9 +25,12 @@ var _ DiscountService = (*discountService)(nil)
 type Option func(*discountService)
 
 // WithClock overrides the clock used to evaluate discount validity windows.
+// A nil clock is ignored.
 func WithClock(now func() time.Time) Option {
 	return func(s *discountService) {
-		s.now = now
+		if now != nil {
+			s.now = now
+		}
 	}
 }
 

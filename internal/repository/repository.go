@@ -4,6 +4,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/ransh7/unifize-assignment/internal/discount"
@@ -57,9 +58,71 @@ type InMemoryRepository struct {
 
 var _ DiscountRepository = (*InMemoryRepository)(nil)
 
-// NewInMemoryRepository returns a repository serving rules.
-func NewInMemoryRepository(rules Rules) *InMemoryRepository {
-	return &InMemoryRepository{rules: rules}
+// NewInMemoryRepository returns a repository serving rules. It returns an
+// error wrapping discount.ErrInvalidRule if any rule is misconfigured.
+func NewInMemoryRepository(rules Rules) (*InMemoryRepository, error) {
+	if err := rules.Validate(); err != nil {
+		return nil, err
+	}
+	return &InMemoryRepository{rules: rules}, nil
+}
+
+// Validate checks every rule and reports all problems at once. Besides each
+// rule's own checks it requires:
+//   - IDs to be unique across all rules
+//   - names to be unique, since DiscountedPrice.AppliedDiscounts is keyed by
+//     name and two rules sharing one would be silently merged
+//   - voucher codes to be unique, ignoring case and surrounding spaces
+func (r Rules) Validate() error {
+	v := rulesValidator{ids: map[string]bool{}, names: map[string]bool{}, codes: map[string]bool{}}
+	for _, d := range r.Brands {
+		v.check(d)
+	}
+	for _, d := range r.Categories {
+		v.check(d)
+	}
+	for _, d := range r.BankOffers {
+		v.check(d)
+	}
+	for _, d := range r.Vouchers {
+		v.check(d)
+		v.checkCode(d.Code)
+	}
+	return errors.Join(v.errs...)
+}
+
+type validatableRule interface {
+	discount.Rule
+	discount.Validator
+}
+
+// rulesValidator accumulates validation errors across a set of rules.
+type rulesValidator struct {
+	ids, names, codes map[string]bool
+	errs              []error
+}
+
+func (v *rulesValidator) check(rule validatableRule) {
+	if err := rule.Validate(); err != nil {
+		v.errs = append(v.errs, err)
+	}
+	terms := rule.Terms()
+	v.unique(v.ids, "id", terms.ID)
+	v.unique(v.names, "name", terms.Name)
+}
+
+func (v *rulesValidator) checkCode(code string) {
+	v.unique(v.codes, "voucher code", discount.NormalizeCode(code))
+}
+
+func (v *rulesValidator) unique(seen map[string]bool, field, value string) {
+	if value == "" {
+		return // missing values are reported by the rule's own Validate
+	}
+	if seen[value] {
+		v.errs = append(v.errs, fmt.Errorf("%w: duplicate %s %q", discount.ErrInvalidRule, field, value))
+	}
+	seen[value] = true
 }
 
 // BrandDiscounts implements ProductDiscountSource.

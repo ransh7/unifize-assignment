@@ -2,7 +2,11 @@
 // across the discount service.
 package models
 
-import "github.com/shopspring/decimal"
+import (
+	"strings"
+
+	"github.com/shopspring/decimal"
+)
 
 // BrandTier classifies a brand by its market positioning.
 type BrandTier string
@@ -73,18 +77,18 @@ type CustomerProfile struct {
 	Tier string `json:"tier"`
 }
 
-// MeetsTier reports whether the customer's tier is at least minTier.
-// An empty minTier imposes no requirement; an unknown customer tier never
-// satisfies a non-empty requirement.
+// MeetsTier reports whether the customer's tier is at least minTier, comparing
+// tier names case-insensitively. An empty minTier imposes no requirement; an
+// unknown tier on either side never satisfies a non-empty requirement.
 func (c CustomerProfile) MeetsTier(minTier string) bool {
 	if minTier == "" {
 		return true
 	}
-	have, ok := customerTierRank[c.Tier]
+	have, ok := customerTierRank[strings.ToLower(c.Tier)]
 	if !ok {
 		return false
 	}
-	want, ok := customerTierRank[minTier]
+	want, ok := customerTierRank[strings.ToLower(minTier)]
 	if !ok {
 		return false
 	}
