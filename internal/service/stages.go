@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"fmt"
+	"iter"
 	"time"
 
 	"github.com/shopspring/decimal"
 
 	"github.com/ransh7/unifize-assignment/internal/discount"
+	"github.com/ransh7/unifize-assignment/internal/models"
 	"github.com/ransh7/unifize-assignment/internal/pricing"
 	"github.com/ransh7/unifize-assignment/internal/repository"
 )
@@ -17,12 +19,12 @@ import (
 // discounts, and any future ProductRule type.
 type productDiscountStage[R discount.ProductRule] struct {
 	kind string // used in error messages, e.g. "brand"
-	load func(ctx context.Context, t time.Time) ([]R, error)
+	load func(ctx context.Context, products iter.Seq[models.Product], t time.Time) ([]R, error)
 }
 
 // Apply implements pricing.Stage.
 func (s productDiscountStage[R]) Apply(ctx context.Context, cart *pricing.Cart) error {
-	rules, err := s.load(ctx, cart.Now)
+	rules, err := s.load(ctx, cart.Products(), cart.Now)
 	if err != nil {
 		return fmt.Errorf("loading %s discounts: %w", s.kind, err)
 	}

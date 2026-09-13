@@ -3,6 +3,7 @@ package repository_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/ransh7/unifize-assignment/internal/discount"
+	"github.com/ransh7/unifize-assignment/internal/models"
 	"github.com/ransh7/unifize-assignment/internal/repository"
 	"github.com/ransh7/unifize-assignment/testdata"
 )
@@ -150,6 +152,26 @@ func TestInMemoryRepositoryLookups(t *testing.T) {
 		}
 	})
 
+	t.Run("product lookups only return rules targeting the products", func(t *testing.T) {
+		products := slices.Values([]models.Product{testdata.PumaTShirt, testdata.PumaTShirt, testdata.NikeRunningShoes})
+
+		brands, err := repo.BrandDiscounts(ctx, products, testdata.Now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(brands) != 1 || brands[0].ID != testdata.PumaBrandDiscount.ID {
+			t.Errorf("BrandDiscounts = %v, want only %s once", brands, testdata.PumaBrandDiscount.ID)
+		}
+
+		none, err := repo.CategoryDiscounts(ctx, slices.Values([]models.Product{testdata.RoadsterJeans}), testdata.Now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(none) != 0 {
+			t.Errorf("CategoryDiscounts for jeans = %v, want none", none)
+		}
+	})
+
 	t.Run("active filters by validity window", func(t *testing.T) {
 		limited := testdata.PumaBrandDiscount
 		limited.ID, limited.Name = "limited", "Limited"
@@ -162,7 +184,7 @@ func TestInMemoryRepositoryLookups(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		got, err := repo.BrandDiscounts(ctx, testdata.Now)
+		got, err := repo.BrandDiscounts(ctx, slices.Values([]models.Product{testdata.PumaTShirt}), testdata.Now)
 		if err != nil {
 			t.Fatal(err)
 		}
