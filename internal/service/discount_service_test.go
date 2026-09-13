@@ -15,7 +15,7 @@ import (
 )
 
 func newService() service.DiscountService {
-	repo := repository.NewInMemoryRepository(testdata.AllDiscounts())
+	repo := repository.NewInMemoryRepository(testdata.Rules())
 	return service.NewDiscountService(repo, service.WithClock(func() time.Time { return testdata.Now }))
 }
 

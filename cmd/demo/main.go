@@ -20,7 +20,7 @@ func main() {
 	voucher := flag.String("voucher", "", "optional voucher code to apply, e.g. SUPER69")
 	flag.Parse()
 
-	repo := repository.NewInMemoryRepository(testdata.AllDiscounts())
+	repo := repository.NewInMemoryRepository(testdata.Rules())
 	svc := service.NewDiscountService(repo)
 
 	ctx := context.Background()

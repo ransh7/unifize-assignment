@@ -4,65 +4,102 @@ package repository
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
-	"github.com/ransh7/unifize-assignment/internal/models"
+	"github.com/ransh7/unifize-assignment/internal/discount"
 )
 
 // ErrNotFound is returned when a requested discount does not exist.
 var ErrNotFound = errors.New("not found")
 
-// DiscountRepository is the source of discount rules used by the service.
-type DiscountRepository interface {
-	// ActiveDiscounts returns all discounts of the given type that are active at t.
-	ActiveDiscounts(ctx context.Context, discountType models.DiscountType, t time.Time) ([]models.Discount, error)
+// ProductDiscountSource supplies product-level discounts.
+type ProductDiscountSource interface {
+	// BrandDiscounts returns brand discounts active at t.
+	BrandDiscounts(ctx context.Context, t time.Time) ([]discount.BrandDiscount, error)
+	// CategoryDiscounts returns category discounts active at t.
+	CategoryDiscounts(ctx context.Context, t time.Time) ([]discount.CategoryDiscount, error)
+}
 
+// VoucherSource looks up vouchers by code.
+type VoucherSource interface {
 	// VoucherByCode returns the voucher with the given code regardless of its
 	// validity window, so callers can explain why a code cannot be used.
 	// Lookup is case-insensitive. It returns ErrNotFound if no voucher matches.
-	VoucherByCode(ctx context.Context, code string) (*models.Discount, error)
+	VoucherByCode(ctx context.Context, code string) (discount.Voucher, error)
 }
 
-// InMemoryRepository is a DiscountRepository backed by a slice. It is safe for
-// concurrent reads because it is never mutated after construction.
+// BankOfferSource supplies bank offers.
+type BankOfferSource interface {
+	// BankOffers returns bank offers active at t.
+	BankOffers(ctx context.Context, t time.Time) ([]discount.BankOffer, error)
+}
+
+// DiscountRepository is the complete source of discount rules.
+type DiscountRepository interface {
+	ProductDiscountSource
+	VoucherSource
+	BankOfferSource
+}
+
+// Rules is the full set of discount rules served by an InMemoryRepository.
+type Rules struct {
+	Brands     []discount.BrandDiscount
+	Categories []discount.CategoryDiscount
+	Vouchers   []discount.Voucher
+	BankOffers []discount.BankOffer
+}
+
+// InMemoryRepository is a DiscountRepository backed by slices. It is safe for
+// concurrent use because it is never mutated after construction.
 type InMemoryRepository struct {
-	discounts []models.Discount
+	rules Rules
 }
 
 var _ DiscountRepository = (*InMemoryRepository)(nil)
 
-// NewInMemoryRepository returns a repository serving the given discounts.
-func NewInMemoryRepository(discounts []models.Discount) *InMemoryRepository {
-	cp := make([]models.Discount, len(discounts))
-	copy(cp, discounts)
-	return &InMemoryRepository{discounts: cp}
+// NewInMemoryRepository returns a repository serving rules.
+func NewInMemoryRepository(rules Rules) *InMemoryRepository {
+	return &InMemoryRepository{rules: rules}
 }
 
-// ActiveDiscounts implements DiscountRepository.
-func (r *InMemoryRepository) ActiveDiscounts(ctx context.Context, discountType models.DiscountType, t time.Time) ([]models.Discount, error) {
+// BrandDiscounts implements ProductDiscountSource.
+func (r *InMemoryRepository) BrandDiscounts(ctx context.Context, t time.Time) ([]discount.BrandDiscount, error) {
+	return activeAt(ctx, r.rules.Brands, t)
+}
+
+// CategoryDiscounts implements ProductDiscountSource.
+func (r *InMemoryRepository) CategoryDiscounts(ctx context.Context, t time.Time) ([]discount.CategoryDiscount, error) {
+	return activeAt(ctx, r.rules.Categories, t)
+}
+
+// BankOffers implements BankOfferSource.
+func (r *InMemoryRepository) BankOffers(ctx context.Context, t time.Time) ([]discount.BankOffer, error) {
+	return activeAt(ctx, r.rules.BankOffers, t)
+}
+
+// VoucherByCode implements VoucherSource.
+func (r *InMemoryRepository) VoucherByCode(ctx context.Context, code string) (discount.Voucher, error) {
+	if err := ctx.Err(); err != nil {
+		return discount.Voucher{}, err
+	}
+	code = discount.NormalizeCode(code)
+	for _, v := range r.rules.Vouchers {
+		if discount.NormalizeCode(v.Code) == code {
+			return v, nil
+		}
+	}
+	return discount.Voucher{}, ErrNotFound
+}
+
+func activeAt[R discount.Rule](ctx context.Context, rules []R, t time.Time) ([]R, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	var out []models.Discount
-	for _, d := range r.discounts {
-		if d.Type == discountType && d.IsActiveAt(t) {
-			out = append(out, d)
+	var out []R
+	for _, r := range rules {
+		if r.Terms().IsActiveAt(t) {
+			out = append(out, r)
 		}
 	}
 	return out, nil
-}
-
-// VoucherByCode implements DiscountRepository.
-func (r *InMemoryRepository) VoucherByCode(ctx context.Context, code string) (*models.Discount, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	for _, d := range r.discounts {
-		if d.Type == models.DiscountTypeVoucher && strings.EqualFold(d.Code, code) {
-			v := d
-			return &v, nil
-		}
-	}
-	return nil, ErrNotFound
 }

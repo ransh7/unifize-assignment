@@ -4,20 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
 
+	"github.com/ransh7/unifize-assignment/internal/discount"
 	"github.com/ransh7/unifize-assignment/internal/models"
 	"github.com/ransh7/unifize-assignment/internal/repository"
 )
-
-var hundred = decimal.NewFromInt(100)
-
-// moneyPlaces is the number of decimal places monetary amounts are rounded to.
-const moneyPlaces = 2
 
 type discountService struct {
 	repo repository.DiscountRepository
@@ -74,30 +69,17 @@ func (s *discountService) CalculateCartDiscounts(ctx context.Context, cartItems 
 	}
 
 	// Stage 1: brand and category discounts, applied per line.
-	brandDiscounts, err := s.repo.ActiveDiscounts(ctx, models.DiscountTypeBrand, now)
+	brandDiscounts, err := s.repo.BrandDiscounts(ctx, now)
 	if err != nil {
 		return nil, fmt.Errorf("loading brand discounts: %w", err)
 	}
-	categoryDiscounts, err := s.repo.ActiveDiscounts(ctx, models.DiscountTypeCategory, now)
+	categoryDiscounts, err := s.repo.CategoryDiscounts(ctx, now)
 	if err != nil {
 		return nil, fmt.Errorf("loading category discounts: %w", err)
 	}
 	for i := range lines {
-		product := lines[i].item.Product
-
-		if d, amount, ok := bestDiscount(brandDiscounts, lines[i].price, func(d models.Discount) bool {
-			return strings.EqualFold(d.Brand, product.Brand)
-		}); ok {
-			lines[i].price = lines[i].price.Sub(amount)
-			addApplied(applied, d.Name, amount)
-		}
-
-		if d, amount, ok := bestDiscount(categoryDiscounts, lines[i].price, func(d models.Discount) bool {
-			return strings.EqualFold(d.Category, product.Category)
-		}); ok {
-			lines[i].price = lines[i].price.Sub(amount)
-			addApplied(applied, d.Name, amount)
-		}
+		applyBestProductRule(&lines[i], brandDiscounts, applied)
+		applyBestProductRule(&lines[i], categoryDiscounts, applied)
 	}
 
 	total := decimal.Zero
@@ -113,11 +95,11 @@ func (s *discountService) CalculateCartDiscounts(ctx context.Context, cartItems 
 		}
 		eligible := decimal.Zero
 		for _, l := range lines {
-			if voucherAppliesTo(voucher, l.item.Product) {
+			if voucher.AppliesToProduct(l.item.Product) {
 				eligible = eligible.Add(l.price)
 			}
 		}
-		amount := discountAmount(*voucher, eligible)
+		amount := voucher.AmountOff(eligible)
 		if amount.IsPositive() {
 			total = total.Sub(amount)
 			addApplied(applied, voucher.Name, amount)
@@ -126,15 +108,15 @@ func (s *discountService) CalculateCartDiscounts(ctx context.Context, cartItems 
 
 	// Stage 3: bank offer, applied to the cart total.
 	if paymentInfo != nil {
-		offers, err := s.repo.ActiveDiscounts(ctx, models.DiscountTypeBankOffer, now)
+		offers, err := s.repo.BankOffers(ctx, now)
 		if err != nil {
 			return nil, fmt.Errorf("loading bank offers: %w", err)
 		}
-		if d, amount, ok := bestDiscount(offers, total, func(d models.Discount) bool {
-			return bankOfferMatches(d, paymentInfo)
+		if offer, amount, ok := discount.Best(offers, total, func(o discount.BankOffer) bool {
+			return o.AppliesToPayment(paymentInfo)
 		}); ok {
 			total = total.Sub(amount)
-			addApplied(applied, d.Name, amount)
+			addApplied(applied, offer.Name, amount)
 		}
 	}
 
@@ -144,6 +126,19 @@ func (s *discountService) CalculateCartDiscounts(ctx context.Context, cartItems 
 		AppliedDiscounts: applied,
 		Message:          summaryMessage(original, total, len(applied)),
 	}, nil
+}
+
+// applyBestProductRule applies the most valuable rule that targets the line's
+// product, if any.
+func applyBestProductRule[R discount.ProductRule](line *cartLine, rules []R, applied map[string]decimal.Decimal) {
+	rule, amount, ok := discount.Best(rules, line.price, func(r R) bool {
+		return r.AppliesToProduct(line.item.Product)
+	})
+	if !ok {
+		return
+	}
+	line.price = line.price.Sub(amount)
+	addApplied(applied, rule.Terms().Name, amount)
 }
 
 // ValidateDiscountCode implements DiscountService.
@@ -163,40 +158,38 @@ func (s *discountService) ValidateDiscountCode(ctx context.Context, code string,
 // for the customer at time now.
 func (s *discountService) checkVoucher(ctx context.Context, code string, cartItems []models.CartItem,
 	customer models.CustomerProfile, now time.Time,
-) (*models.Discount, error) {
-	code = strings.ToUpper(strings.TrimSpace(code))
+) (discount.Voucher, error) {
+	code = discount.NormalizeCode(code)
 	if code == "" {
-		return nil, &ValidationError{Code: code, Reason: ErrEmptyDiscountCode}
+		return discount.Voucher{}, &ValidationError{Code: code, Reason: ErrEmptyDiscountCode}
 	}
 	if err := validateCart(cartItems); err != nil {
-		return nil, err
+		return discount.Voucher{}, err
 	}
 
 	voucher, err := s.repo.VoucherByCode(ctx, code)
 	if errors.Is(err, repository.ErrNotFound) {
-		return nil, &ValidationError{Code: code, Reason: ErrDiscountCodeNotFound}
+		return discount.Voucher{}, &ValidationError{Code: code, Reason: ErrDiscountCodeNotFound}
 	}
 	if err != nil {
-		return nil, fmt.Errorf("looking up discount code %q: %w", code, err)
+		return discount.Voucher{}, fmt.Errorf("looking up discount code %q: %w", code, err)
 	}
 
-	if !voucher.ValidFrom.IsZero() && now.Before(voucher.ValidFrom) {
-		return nil, &ValidationError{
+	switch {
+	case voucher.NotYetActive(now):
+		return discount.Voucher{}, &ValidationError{
 			Code:   code,
 			Reason: ErrDiscountNotYetActive,
 			Detail: "valid from " + voucher.ValidFrom.Format(time.RFC3339),
 		}
-	}
-	if !voucher.ValidUntil.IsZero() && now.After(voucher.ValidUntil) {
-		return nil, &ValidationError{
+	case voucher.Expired(now):
+		return discount.Voucher{}, &ValidationError{
 			Code:   code,
 			Reason: ErrDiscountExpired,
 			Detail: "expired at " + voucher.ValidUntil.Format(time.RFC3339),
 		}
-	}
-
-	if !customer.MeetsTier(voucher.MinCustomerTier) {
-		return nil, &ValidationError{
+	case !customer.MeetsTier(voucher.MinCustomerTier):
+		return discount.Voucher{}, &ValidationError{
 			Code:   code,
 			Reason: ErrCustomerTierNotEligible,
 			Detail: fmt.Sprintf("requires %q tier or above, customer tier is %q", voucher.MinCustomerTier, customer.Tier),
@@ -204,26 +197,14 @@ func (s *discountService) checkVoucher(ctx context.Context, code string, cartIte
 	}
 
 	for _, item := range cartItems {
-		if voucherAppliesTo(voucher, item.Product) {
+		if voucher.AppliesToProduct(item.Product) {
 			return voucher, nil
 		}
 	}
-	return nil, &ValidationError{Code: code, Reason: ErrNoEligibleItems, Detail: ineligibilityDetail(voucher)}
+	return discount.Voucher{}, &ValidationError{Code: code, Reason: ErrNoEligibleItems, Detail: ineligibilityDetail(voucher)}
 }
 
-// voucherAppliesTo reports whether the voucher's brand exclusions and category
-// restrictions allow it to discount product.
-func voucherAppliesTo(v *models.Discount, p models.Product) bool {
-	if slices.ContainsFunc(v.ExcludedBrands, func(b string) bool { return strings.EqualFold(b, p.Brand) }) {
-		return false
-	}
-	if len(v.AllowedCategories) == 0 {
-		return true
-	}
-	return slices.ContainsFunc(v.AllowedCategories, func(c string) bool { return strings.EqualFold(c, p.Category) })
-}
-
-func ineligibilityDetail(v *models.Discount) string {
+func ineligibilityDetail(v discount.Voucher) string {
 	var parts []string
 	if len(v.AllowedCategories) > 0 {
 		parts = append(parts, "only valid on categories: "+strings.Join(v.AllowedCategories, ", "))
@@ -232,53 +213,6 @@ func ineligibilityDetail(v *models.Discount) string {
 		parts = append(parts, "not valid on brands: "+strings.Join(v.ExcludedBrands, ", "))
 	}
 	return strings.Join(parts, "; ")
-}
-
-// bankOfferMatches reports whether a bank offer applies to the payment.
-func bankOfferMatches(d models.Discount, p *models.PaymentInfo) bool {
-	if d.PaymentMethod != "" && !strings.EqualFold(d.PaymentMethod, p.Method) {
-		return false
-	}
-	if d.BankName != "" && (p.BankName == nil || !strings.EqualFold(d.BankName, *p.BankName)) {
-		return false
-	}
-	if d.CardType != "" && (p.CardType == nil || !strings.EqualFold(d.CardType, *p.CardType)) {
-		return false
-	}
-	return true
-}
-
-// bestDiscount returns the matching discount yielding the largest amount off
-// price, along with that amount.
-func bestDiscount(discounts []models.Discount, price decimal.Decimal, matches func(models.Discount) bool) (models.Discount, decimal.Decimal, bool) {
-	var (
-		best       models.Discount
-		bestAmount decimal.Decimal
-		found      bool
-	)
-	for _, d := range discounts {
-		if !matches(d) {
-			continue
-		}
-		amount := discountAmount(d, price)
-		if !found || amount.GreaterThan(bestAmount) {
-			best, bestAmount, found = d, amount, true
-		}
-	}
-	return best, bestAmount, found
-}
-
-// discountAmount computes the rounded, capped discount d gives on price. The
-// result never exceeds price.
-func discountAmount(d models.Discount, price decimal.Decimal) decimal.Decimal {
-	amount := price.Mul(d.Percentage).Div(hundred).Round(moneyPlaces)
-	if d.MaxDiscountAmount != nil && amount.GreaterThan(*d.MaxDiscountAmount) {
-		amount = *d.MaxDiscountAmount
-	}
-	if amount.GreaterThan(price) {
-		amount = price
-	}
-	return amount
 }
 
 func addApplied(applied map[string]decimal.Decimal, name string, amount decimal.Decimal) {
@@ -292,9 +226,10 @@ func summaryMessage(original, final decimal.Decimal, count int) string {
 	saved := original.Sub(final)
 	pct := decimal.Zero
 	if original.IsPositive() {
-		pct = saved.Div(original).Mul(hundred).Round(moneyPlaces)
+		pct = saved.Div(original).Mul(decimal.NewFromInt(100)).Round(discount.MoneyPlaces)
 	}
-	return fmt.Sprintf("Applied %d discount(s): you save %s (%s%%)", count, saved.StringFixed(moneyPlaces), pct.StringFixed(moneyPlaces))
+	return fmt.Sprintf("Applied %d discount(s): you save %s (%s%%)", count,
+		saved.StringFixed(discount.MoneyPlaces), pct.StringFixed(discount.MoneyPlaces))
 }
 
 func validateCart(cartItems []models.CartItem) error {

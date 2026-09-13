@@ -12,7 +12,9 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"github.com/ransh7/unifize-assignment/internal/discount"
 	"github.com/ransh7/unifize-assignment/internal/models"
+	"github.com/ransh7/unifize-assignment/internal/repository"
 )
 
 // Now is the fixed reference time that the fake discount validity windows are
@@ -51,27 +53,30 @@ var (
 
 // Discounts for the multiple discount scenario.
 var (
-	PumaBrandDiscount = models.Discount{
-		ID:         "disc-brand-puma",
-		Name:       "Min 40% off on PUMA",
-		Type:       models.DiscountTypeBrand,
-		Percentage: decimal.NewFromInt(40),
-		Brand:      "PUMA",
+	PumaBrandDiscount = discount.BrandDiscount{
+		Offer: discount.Offer{
+			ID:         "disc-brand-puma",
+			Name:       "Min 40% off on PUMA",
+			Percentage: decimal.NewFromInt(40),
+		},
+		Brand: "PUMA",
 	}
 
-	TShirtCategoryDiscount = models.Discount{
-		ID:         "disc-category-tshirts",
-		Name:       "Extra 10% off on T-shirts",
-		Type:       models.DiscountTypeCategory,
-		Percentage: decimal.NewFromInt(10),
-		Category:   "T-shirts",
+	TShirtCategoryDiscount = discount.CategoryDiscount{
+		Offer: discount.Offer{
+			ID:         "disc-category-tshirts",
+			Name:       "Extra 10% off on T-shirts",
+			Percentage: decimal.NewFromInt(10),
+		},
+		Category: "T-shirts",
 	}
 
-	ICICIBankOffer = models.Discount{
-		ID:            "disc-bank-icici",
-		Name:          "10% instant discount on ICICI Bank cards",
-		Type:          models.DiscountTypeBankOffer,
-		Percentage:    decimal.NewFromInt(10),
+	ICICIBankOffer = discount.BankOffer{
+		Offer: discount.Offer{
+			ID:         "disc-bank-icici",
+			Name:       "10% instant discount on ICICI Bank cards",
+			Percentage: decimal.NewFromInt(10),
+		},
 		BankName:      "ICICI",
 		PaymentMethod: models.PaymentMethodCard,
 	}
@@ -79,62 +84,63 @@ var (
 
 // Vouchers.
 var (
-	Super69Voucher = models.Discount{
-		ID:         "voucher-super69",
-		Name:       "SUPER69: 69% off",
-		Type:       models.DiscountTypeVoucher,
-		Percentage: decimal.NewFromInt(69),
-		Code:       "SUPER69",
+	Super69Voucher = discount.Voucher{
+		Offer: discount.Offer{
+			ID:         "voucher-super69",
+			Name:       "SUPER69: 69% off",
+			Percentage: decimal.NewFromInt(69),
+		},
+		Code: "SUPER69",
 	}
 
-	Gold20Voucher = models.Discount{
-		ID:              "voucher-gold20",
-		Name:            "GOLD20: 20% off for gold members",
-		Type:            models.DiscountTypeVoucher,
-		Percentage:      decimal.NewFromInt(20),
+	Gold20Voucher = discount.Voucher{
+		Offer: discount.Offer{
+			ID:         "voucher-gold20",
+			Name:       "GOLD20: 20% off for gold members",
+			Percentage: decimal.NewFromInt(20),
+		},
 		Code:            "GOLD20",
 		MinCustomerTier: models.CustomerTierGold,
 	}
 
-	TShirt15Voucher = models.Discount{
-		ID:                "voucher-tshirt15",
-		Name:              "TSHIRT15: 15% off T-shirts",
-		Type:              models.DiscountTypeVoucher,
-		Percentage:        decimal.NewFromInt(15),
+	TShirt15Voucher = discount.Voucher{
+		Offer: discount.Offer{
+			ID:         "voucher-tshirt15",
+			Name:       "TSHIRT15: 15% off T-shirts",
+			Percentage: decimal.NewFromInt(15),
+		},
 		Code:              "TSHIRT15",
 		AllowedCategories: []string{"T-shirts"},
 	}
 
-	Sale25Voucher = models.Discount{
-		ID:             "voucher-sale25",
-		Name:           "SALE25: 25% off, excludes Nike",
-		Type:           models.DiscountTypeVoucher,
-		Percentage:     decimal.NewFromInt(25),
+	Sale25Voucher = discount.Voucher{
+		Offer: discount.Offer{
+			ID:         "voucher-sale25",
+			Name:       "SALE25: 25% off, excludes Nike",
+			Percentage: decimal.NewFromInt(25),
+		},
 		Code:           "SALE25",
 		ExcludedBrands: []string{"Nike"},
 	}
 
-	Expired10Voucher = models.Discount{
-		ID:         "voucher-expired10",
-		Name:       "EXPIRED10: 10% off",
-		Type:       models.DiscountTypeVoucher,
-		Percentage: decimal.NewFromInt(10),
-		Code:       "EXPIRED10",
-		ValidUntil: time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC),
+	Expired10Voucher = discount.Voucher{
+		Offer: discount.Offer{
+			ID:         "voucher-expired10",
+			Name:       "EXPIRED10: 10% off",
+			Percentage: decimal.NewFromInt(10),
+			ValidUntil: time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC),
+		},
+		Code: "EXPIRED10",
 	}
 )
 
-// AllDiscounts returns every fake discount rule.
-func AllDiscounts() []models.Discount {
-	return []models.Discount{
-		PumaBrandDiscount,
-		TShirtCategoryDiscount,
-		ICICIBankOffer,
-		Super69Voucher,
-		Gold20Voucher,
-		TShirt15Voucher,
-		Sale25Voucher,
-		Expired10Voucher,
+// Rules returns every fake discount rule, ready to load into a repository.
+func Rules() repository.Rules {
+	return repository.Rules{
+		Brands:     []discount.BrandDiscount{PumaBrandDiscount},
+		Categories: []discount.CategoryDiscount{TShirtCategoryDiscount},
+		Vouchers:   []discount.Voucher{Super69Voucher, Gold20Voucher, TShirt15Voucher, Sale25Voucher, Expired10Voucher},
+		BankOffers: []discount.BankOffer{ICICIBankOffer},
 	}
 }
 

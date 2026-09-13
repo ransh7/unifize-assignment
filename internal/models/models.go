@@ -1,13 +1,8 @@
-// Package models defines the domain types shared across the discount service:
-// the catalogue/cart types supplied by the assignment plus the discount rule
-// definitions the service evaluates.
+// Package models defines the catalogue, cart, payment and customer types shared
+// across the discount service.
 package models
 
-import (
-	"time"
-
-	"github.com/shopspring/decimal"
-)
+import "github.com/shopspring/decimal"
 
 // BrandTier classifies a brand by its market positioning.
 type BrandTier string
@@ -94,59 +89,4 @@ func (c CustomerProfile) MeetsTier(minTier string) bool {
 		return false
 	}
 	return have >= want
-}
-
-// DiscountType identifies which pricing stage a discount belongs to.
-type DiscountType string
-
-// Supported discount types.
-const (
-	DiscountTypeBrand     DiscountType = "brand"
-	DiscountTypeCategory  DiscountType = "category"
-	DiscountTypeVoucher   DiscountType = "voucher"
-	DiscountTypeBankOffer DiscountType = "bank_offer"
-)
-
-// Discount is a percentage-based discount rule. Which fields are meaningful
-// depends on Type:
-//   - brand:      Brand
-//   - category:   Category
-//   - voucher:    Code, ExcludedBrands, AllowedCategories, MinCustomerTier
-//   - bank_offer: BankName, PaymentMethod, CardType
-type Discount struct {
-	ID         string          `json:"id"`
-	Name       string          `json:"name"`
-	Type       DiscountType    `json:"type"`
-	Percentage decimal.Decimal `json:"percentage"` // 10 means 10%
-
-	// MaxDiscountAmount optionally caps the absolute discount.
-	MaxDiscountAmount *decimal.Decimal `json:"max_discount_amount,omitempty"`
-
-	// ValidFrom and ValidUntil bound when the discount is active. A zero
-	// value means the bound is open.
-	ValidFrom  time.Time `json:"valid_from"`
-	ValidUntil time.Time `json:"valid_until"`
-
-	Brand    string `json:"brand,omitempty"`
-	Category string `json:"category,omitempty"`
-
-	Code              string   `json:"code,omitempty"`
-	ExcludedBrands    []string `json:"excluded_brands,omitempty"`
-	AllowedCategories []string `json:"allowed_categories,omitempty"`
-	MinCustomerTier   string   `json:"min_customer_tier,omitempty"`
-
-	BankName      string `json:"bank_name,omitempty"`
-	PaymentMethod string `json:"payment_method,omitempty"`
-	CardType      string `json:"card_type,omitempty"`
-}
-
-// IsActiveAt reports whether the discount's validity window contains t.
-func (d Discount) IsActiveAt(t time.Time) bool {
-	if !d.ValidFrom.IsZero() && t.Before(d.ValidFrom) {
-		return false
-	}
-	if !d.ValidUntil.IsZero() && t.After(d.ValidUntil) {
-		return false
-	}
-	return true
 }
