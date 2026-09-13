@@ -132,6 +132,16 @@ var (
 		},
 		Code: "EXPIRED10",
 	}
+
+	Launch30Voucher = discount.Voucher{
+		Offer: discount.Offer{
+			ID:         "voucher-launch30",
+			Name:       "LAUNCH30: 30% off",
+			Percentage: decimal.NewFromInt(30),
+			ValidFrom:  time.Date(2027, time.January, 1, 0, 0, 0, 0, time.UTC),
+		},
+		Code: "LAUNCH30",
+	}
 )
 
 // Rules returns every fake discount rule, ready to load into a repository.
@@ -139,7 +149,9 @@ func Rules() repository.Rules {
 	return repository.Rules{
 		Brands:     []discount.BrandDiscount{PumaBrandDiscount},
 		Categories: []discount.CategoryDiscount{TShirtCategoryDiscount},
-		Vouchers:   []discount.Voucher{Super69Voucher, Gold20Voucher, TShirt15Voucher, Sale25Voucher, Expired10Voucher},
+		Vouchers: []discount.Voucher{
+			Super69Voucher, Gold20Voucher, TShirt15Voucher, Sale25Voucher, Expired10Voucher, Launch30Voucher,
+		},
 		BankOffers: []discount.BankOffer{ICICIBankOffer},
 	}
 }

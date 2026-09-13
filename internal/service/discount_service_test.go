@@ -8,6 +8,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"github.com/ransh7/unifize-assignment/internal/discount"
 	"github.com/ransh7/unifize-assignment/internal/models"
 	"github.com/ransh7/unifize-assignment/internal/repository"
 	"github.com/ransh7/unifize-assignment/internal/service"
@@ -279,6 +280,13 @@ func TestValidateDiscountCode(t *testing.T) {
 			wantErr:  service.ErrDiscountExpired,
 		},
 		{
+			name:     "code not yet active",
+			code:     "LAUNCH30",
+			items:    []models.CartItem{item(testdata.PumaTShirt, 1)},
+			customer: testdata.RegularCustomer,
+			wantErr:  service.ErrDiscountNotYetActive,
+		},
+		{
 			name:     "customer tier too low",
 			code:     "GOLD20",
 			items:    []models.CartItem{item(testdata.PumaTShirt, 1)},
@@ -347,16 +355,82 @@ func TestValidateDiscountCode(t *testing.T) {
 	}
 }
 
+// Percentage discounts commute, so stacking order only shows up once a
+// discount is capped. A capped voucher applied before an uncapped bank offer
+// leaves a larger base for the bank offer than the reverse order would.
+func TestCalculateCartDiscountsStackingOrderWithCaps(t *testing.T) {
+	voucherCap := decimal.NewFromInt(100)
+	rules := repository.Rules{
+		Brands: []discount.BrandDiscount{testdata.PumaBrandDiscount},
+		Vouchers: []discount.Voucher{{
+			Offer: discount.Offer{ID: "flat", Name: "FLAT50", Percentage: decimal.NewFromInt(50), MaxAmount: &voucherCap},
+			Code:  "FLAT50",
+		}},
+		BankOffers: []discount.BankOffer{testdata.ICICIBankOffer},
+	}
+	repo, err := repository.NewInMemoryRepository(rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := service.NewDiscountService(repo, service.WithClock(func() time.Time { return testdata.Now }))
+
+	ctx := service.WithVoucherCode(context.Background(), "FLAT50")
+	got, err := svc.CalculateCartDiscounts(ctx, []models.CartItem{item(testdata.PumaTShirt, 1)},
+		testdata.RegularCustomer, testdata.ICICICreditCard)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1000 -40% brand = 600, -100 capped voucher = 500, -10% bank = 450.
+	// Bank before voucher would give 600 - 60 - 100 = 440.
+	if !got.FinalPrice.Equal(dec("450")) {
+		t.Errorf("FinalPrice = %s, want 450", got.FinalPrice)
+	}
+	if bank := got.AppliedDiscounts[testdata.ICICIBankOffer.Name]; !bank.Equal(dec("50")) {
+		t.Errorf("bank offer amount = %s, want 50", bank)
+	}
+}
+
+func TestCalculateCartDiscountsPicksBestRulePerType(t *testing.T) {
+	better := testdata.PumaBrandDiscount
+	better.ID, better.Name, better.Percentage = "puma-50", "50% off PUMA", decimal.NewFromInt(50)
+
+	rules := testdata.Rules()
+	rules.Brands = append(rules.Brands, better)
+	repo, err := repository.NewInMemoryRepository(rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := service.NewDiscountService(repo, service.WithClock(func() time.Time { return testdata.Now }))
+
+	got, err := svc.CalculateCartDiscounts(context.Background(), []models.CartItem{item(testdata.PumaTShirt, 1)},
+		testdata.RegularCustomer, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := got.AppliedDiscounts[testdata.PumaBrandDiscount.Name]; ok {
+		t.Errorf("both brand discounts applied: %v", got.AppliedDiscounts)
+	}
+	if amount := got.AppliedDiscounts[better.Name]; !amount.Equal(dec("500")) {
+		t.Errorf("AppliedDiscounts[%q] = %s, want 500", better.Name, amount)
+	}
+}
+
 func TestValidationErrorDetail(t *testing.T) {
 	svc := newService(t)
-	_, err := svc.ValidateDiscountCode(context.Background(), "GOLD20",
+	_, err := svc.ValidateDiscountCode(context.Background(), "gold20",
 		[]models.CartItem{item(testdata.PumaTShirt, 1)}, testdata.RegularCustomer)
 
 	var vErr *service.ValidationError
 	if !errors.As(err, &vErr) {
 		t.Fatalf("error = %v, want *service.ValidationError", err)
 	}
-	if vErr.Code != "GOLD20" || vErr.Detail == "" {
-		t.Errorf("ValidationError = %+v, want code GOLD20 with detail", vErr)
+	if vErr.Code != "GOLD20" {
+		t.Errorf("Code = %q, want normalised GOLD20", vErr.Code)
+	}
+	const want = `discount code "GOLD20": customer tier not eligible: requires "gold" tier or above, customer tier is "regular"`
+	if err.Error() != want {
+		t.Errorf("Error() = %q\nwant      %q", err.Error(), want)
 	}
 }
