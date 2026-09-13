@@ -69,7 +69,7 @@ func (s *discountService) CalculateCartDiscounts(ctx context.Context, cartItems 
 	}
 
 	cart := pricing.NewCart(cartItems, customer, paymentInfo, s.now())
-	cart.VoucherCode = VoucherCodeFromContext(ctx)
+	cart.VoucherCode = voucherCodeFrom(ctx)
 
 	if err := s.pipeline.Run(ctx, cart); err != nil {
 		return nil, err

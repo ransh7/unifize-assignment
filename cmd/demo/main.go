@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"log"
 	"os"
 
@@ -41,7 +40,6 @@ func main() {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(result); err != nil {
-		fmt.Fprintf(os.Stderr, "encoding result: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("encoding result: %v", err)
 	}
 }

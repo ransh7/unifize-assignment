@@ -18,19 +18,24 @@ var (
 	ErrNoEligibleItems         = errors.New("no eligible items in cart")
 )
 
-// ValidationError explains why a discount code cannot be applied. Reason is one
-// of the sentinel errors above and is exposed through Unwrap.
+// ValidationError explains why a discount code cannot be applied.
 type ValidationError struct {
-	Code   string
-	Reason error
-	Detail string
+	Code   string // normalised code the customer entered
+	Reason error  // one of the Err* sentinels above, exposed through Unwrap
+	Detail string // customer-facing specifics, e.g. the required tier
 }
 
+// Error formats the failure as `discount code "CODE": reason: detail`,
+// omitting the parts that are empty.
 func (e *ValidationError) Error() string {
-	if e.Detail == "" {
-		return fmt.Sprintf("discount code %q: %v", e.Code, e.Reason)
+	msg := e.Reason.Error()
+	if e.Code != "" {
+		msg = fmt.Sprintf("discount code %q: %s", e.Code, msg)
 	}
-	return fmt.Sprintf("discount code %q: %v: %s", e.Code, e.Reason, e.Detail)
+	if e.Detail != "" {
+		msg += ": " + e.Detail
+	}
+	return msg
 }
 
 // Unwrap returns the underlying sentinel reason.

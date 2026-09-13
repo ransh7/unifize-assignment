@@ -417,6 +417,24 @@ func TestCalculateCartDiscountsPicksBestRulePerType(t *testing.T) {
 	}
 }
 
+func TestValidationErrorMessage(t *testing.T) {
+	tests := []struct {
+		name string
+		err  *service.ValidationError
+		want string
+	}{
+		{name: "empty code", err: &service.ValidationError{Reason: service.ErrEmptyDiscountCode}, want: "discount code is empty"},
+		{name: "no detail", err: &service.ValidationError{Code: "X", Reason: service.ErrDiscountCodeNotFound}, want: `discount code "X": discount code not found`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.err.Error(); got != tt.want {
+				t.Errorf("Error() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestValidationErrorDetail(t *testing.T) {
 	svc := newService(t)
 	_, err := svc.ValidateDiscountCode(context.Background(), "gold20",
